@@ -6,10 +6,8 @@
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.js"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
-        /* ปรับวิดีโอและ Canvas ให้ซ้อนทับกันพอดีและเต็มจอ */
         video, canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
         video { transform: scaleX(-1); }
-        /* Canvas ต้องกลับด้านให้ตรงกับ Video */
         canvas { transform: scaleX(-1); z-index: 5; }
         #status { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10; background: rgba(0,0,0,0.8); color: white; padding: 10px 25px; border-radius: 30px; font-weight: bold; pointer-events: none; }
     </style>
@@ -20,7 +18,6 @@
     <canvas id="overlay"></canvas>
 
     <script>
-        // ใช้ URL เดิมของคุณ
         const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyh2P0KBa9caub2E0QHSt0f0BdmRVJo_zhICFRjuCy-628GkTcV0n8H-IpNsYyQxBUnRQ/exec"; 
 
         const video = document.getElementById('video');
@@ -38,11 +35,10 @@
                     faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
                 ]);
 
-                status.innerText = "⏳ กำลังดึงรายชื่อจากคอลัมน์ A...";
+                status.innerText = "⏳ ดึงข้อมูลพนักงาน...";
                 const response = await fetch(WEB_APP_URL + "?action=getFaces");
                 const data = await response.json();
                 
-                // เก็บข้อมูลจาก GS: label คือชื่อ (A), descriptor คือข้อมูลใบหน้า (B)
                 knownFaces = data.map(u => ({ 
                     label: u.label, 
                     descriptor: new Float32Array(u.descriptor) 
@@ -50,72 +46,4 @@
                 
                 initCamera();
             } catch (e) {
-                console.error(e);
-                status.innerText = "❌ เชื่อมต่อล้มเหลว ตรวจสอบการ Deployment (ตั้งเป็น Anyone)";
-            }
-        };
-
-        async function initCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: { ideal: 1280 }, height: { ideal: 720 } } 
-                });
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    status.innerText = "✅ พร้อมสแกนใบหน้า";
-                    startScan();
-                };
-            } catch (e) {
-                status.innerText = "❌ กล้องขัดข้อง หรือไม่ได้ต่อกล้อง";
-            }
-        }
-
-        async function startScan() {
-            // กำหนดขนาดการวาดให้เท่ากับขนาดวิดีโอที่แสดงผลจริง
-            const displaySize = { width: video.offsetWidth, height: video.offsetHeight };
-            faceapi.matchDimensions(canvas, displaySize);
-
-            setInterval(async () => {
-                // ตรวจจับใบหน้า จุดสำคัญ และรหัสใบหน้า (Descriptor)
-                const detections = await faceapi.detectAllFaces(video)
-                    .withFaceLandmarks()
-                    .withFaceDescriptors();
-                
-                // ปรับขนาดผลลัพธ์ให้พอดีกับหน้าจอ (ทำให้กรอบขยับตามหน้าจริง)
-                const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                resizedDetections.forEach(det => {
-                    let bestMatch = { label: 'Unknown', distance: 1.0 };
-                    
-                    // เปรียบเทียบกับข้อมูลที่ดึงมาจากชีท
-                    knownFaces.forEach(known => {
-                        const dist = faceapi.euclideanDistance(det.descriptor, known.descriptor);
-                        if (dist < bestMatch.distance) {
-                            bestMatch = { label: known.label, distance: dist };
-                        }
-                    });
-
-                    // คำนวณเปอร์เซ็นต์ความแม่นยำ
-                    const score = (1 - bestMatch.distance) * 100;
-                    
-                    // กำหนดสีตามเงื่อนไข (แดง >60, เหลือง 20-60, เขียว <20)
-                    let color = 'green';
-                    if (score >= 60) color = 'red';
-                    else if (score >= 20) color = 'yellow';
-
-                    // วาดกรอบและแสดงชื่อ (Label) ที่ตรงกับคอลัมน์ A
-                    const drawBox = new faceapi.draw.DrawBox(det.detection.box, { 
-                        label: `${bestMatch.label} (${score.toFixed(0)}%)`, 
-                        boxColor: color,
-                        lineWidth: 3
-                    });
-                    drawBox.draw(canvas);
-                });
-            }, 200); // ทำงานทุกๆ 0.2 วินาที
-        }
-    </script>
-</body>
-</html>
+                status.innerText = "❌ เชื่อมต่อล้มเหล
