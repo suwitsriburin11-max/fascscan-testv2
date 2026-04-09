@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Face Scan Full Screen</title>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+        video, canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        video { transform: scaleX(-1); }
+        canvas { transform: scaleX(-1); z-index: 5; }
+        #status { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 10; background: rgba(0,0,0,0.8); color: white; padding: 10px 25px; border-radius: 30px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="status">⏳ กำลังเชื่อมต่อฐานข้อมูล...</div>
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="overlay"></canvas>
+
+    <script>
+        // ⚠️ ใส่ URL ของ Deployment (ที่ลงท้ายด้วย /exec) ของคุณที่นี่
+        const WEB_APP_URL = "ใส่_URL_DEPLOYMENT_ของคุณที่นี่"; 
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('overlay');
+        const status = document.getElementById('status');
+        let knownFaces = [];
+
+        window.onload = async () => {
+            try {
+                // 1. โหลด AI
+                const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+                await Promise.all([
+                    faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
+
+                // 2. ดึงข้อมูลจาก Google Sheets (ใช้การ fetch แทน google.script.run)
+                const response = await fetch(WEB_APP_URL + "?action=getFaces");
+                const data = await response.json();
+                knownFaces = data.map(u => ({ label: u.label, descriptor: new Float32Array(u.descriptor) }));
+                
+                initCamera();
+            } catch (e) {
+                status.innerText = "❌ เชื่อมต่อล้มเหลว ตรวจสอบ Web App URL";
+            }
+        };
+
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    status.innerText = "✅ พร้อมสแกน (รันภายนอก)";
+                    startScan();
+                };
+            } catch (e) {
+                status.innerText = "❌ กล้องขัดข้อง";
+            }
+        }
+
+        async function startScan() {
+            const displaySize = { width: video.offsetWidth, height: video.offsetHeight };
+            faceapi.matchDimensions(canvas, displaySize);
+
+            setInterval(async () => {
+                const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
+                const resized = faceapi.resizeResults(detections, displaySize);
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                resized.forEach(det => {
+                    let best = { label: 'Unknown', distance: 1.0 };
+                    knownFaces.forEach(f => {
+                        const d = faceapi.euclideanDistance(det.descriptor, f.descriptor);
+                        if (d < best.distance) best = { label: f.label, distance: d };
+                    });
+
+                    const score = (1 - best.distance) * 100;
+                    let color = 'green';
+                    if (score >= 60) color = 'red';
+                    else if (score >= 20) color = 'yellow';
+
+                    new faceapi.draw.DrawBox(det.detection.box, { 
+                        label: `${best.label} (${score.toFixed(0)}%)`, 
+                        boxColor: color 
+                    }).draw(canvas);
+                });
+            }, 200);
+        }
+    </script>
+</body>
+</html>
