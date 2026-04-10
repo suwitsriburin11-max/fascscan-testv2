@@ -7,29 +7,29 @@
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Kanit', sans-serif; }
         video, canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        
+        /* กลับด้านวิดีโอและแคนวาส */
         video { transform: scaleX(-1); }
         canvas { transform: scaleX(-1); z-index: 5; }
         
         #status { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.6); color: white; padding: 8px 20px; border-radius: 10px; font-size: 14px; pointer-events: none; }
 
-        /* ชื่อคนสแกนผ่าน ปรับให้เด่นและอยู่ตรงกลางบน */
+        /* ย้ายไป ขวาบน (Top Right) */
         #name-display { 
             position: absolute; 
-            top: 40px; 
-            left: 50%; 
-            transform: translateX(-50%); 
+            top: 20px; 
+            right: 20px; 
             z-index: 20; 
             background: rgba(0, 180, 0, 0.9); 
             color: white; 
-            padding: 15px 50px; 
-            border-radius: 60px; 
-            font-size: 40px; 
+            padding: 15px 30px; 
+            border-radius: 20px; 
+            font-size: 28px; 
             font-weight: bold; 
             display: none;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            border: 4px solid #fff;
-            text-align: center;
-            min-width: 300px;
+            border: 3px solid #fff;
+            text-align: right;
         }
     </style>
 </head>
@@ -38,7 +38,6 @@
     <div id="name-display"></div>
     <video id="video" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
-// ... (ส่วน CSS เหมือนเดิม) ...
 
 <script>
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyh2P0KBa9caub2E0QHSt0f0BdmRVJo_zhICFRjuCy-628GkTcV0n8H-IpNsYyQxBUnRQ/exec"; 
@@ -70,8 +69,8 @@
             }
 
             knownFaces = data.map(u => ({ 
-                label: u.label, // ชื่อจากคอลัมน์ A
-                descriptor: new Float32Array(u.descriptor) // ข้อมูลจากคอลัมน์ B
+                label: u.label, 
+                descriptor: new Float32Array(u.descriptor) 
             }));
             
             status.innerText = "✅ พร้อมใช้งาน (พบ " + knownFaces.length + " รายชื่อ)";
@@ -107,23 +106,32 @@
                 const result = faceMatcher.findBestMatch(detection.descriptor);
                 const matchPercent = Math.round((1 - result.distance) * 100);
                 const color = result.label !== 'unknown' ? '#00FF00' : '#FF0000';
-                
-                // --- ส่วนการวาดกรอบและป้ายชื่อ ---
                 const box = detection.detection.box;
-                const drawBox = new faceapi.draw.DrawBox(box, { 
-                    label: `${result.label} (${matchPercent}%)`, // ตัวเลข % หลังชื่อ
-                    lineWidth: 5,
-                    boxColor: color,
-                    drawLabelOptions: {
-                        fontSize: 30,           // ปรับขนาดตัวอักษรบนกรอบให้ใหญ่
-                        fontStyle: 'bold',
-                        fontColor: '#ffffff',
-                        backgroundColor: 'rgba(0,0,0,0.85)' // พื้นหลังดำสนิทให้อักษรลอยเด่น
-                    }
-                });
-                drawBox.draw(canvas);
 
-                // --- แสดงชื่อเด่นชัดที่มุมบนกึ่งกลางจอ ---
+                // 1. วาดกรอบสแกน (สลับด้านตาม Canvas)
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 5;
+                ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+                // 2. วาดตัวหนังสือแบบ "ไม่สลับด้าน"
+                ctx.save();
+                // ย้ายจุดหมุนไปที่ตำแหน่งที่จะเขียน แล้วทำการ Flip ตัวอักษรคืน
+                ctx.translate(box.x + box.width, box.y);
+                ctx.scale(-1, 1); 
+
+                const label = `${result.label} (${matchPercent}%)`;
+                ctx.font = 'bold 24px Kanit';
+                
+                // วาดพื้นหลังตัวอักษร
+                const textWidth = ctx.measureText(label).width;
+                ctx.fillStyle = 'rgba(0,0,0,0.8)';
+                ctx.fillRect(0, -35, textWidth + 10, 35);
+
+                // เขียนข้อความ
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(label, 5, -10);
+                ctx.restore();
+
                 if (result.label !== 'unknown' && matchPercent > 45) {
                     showNameHeader(result.label, matchPercent);
                 }
@@ -132,7 +140,7 @@
     };
 
     function showNameHeader(name, percent) {
-        nameDisplay.innerHTML = `<div>ยินดีต้อนรับ: ${name}</div><div style="font-size:22px">ความมั่นใจ: ${percent}%</div>`;
+        nameDisplay.innerHTML = `<div>ยินดีต้อนรับ</div><div>${name}</div><div style="font-size:18px; font-weight:normal;">ความมั่นใจ: ${percent}%</div>`;
         nameDisplay.style.display = "block";
         
         clearTimeout(nameTimeout);
@@ -141,6 +149,5 @@
         }, 3000);
     }
 </script>
-    
 </body>
 </html>
