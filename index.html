@@ -91,7 +91,7 @@
 
         const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
             new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
-        ), 0.55);
+        ), 0.53);
 
         setInterval(async () => {
             const detections = await faceapi.detectAllFaces(video)
