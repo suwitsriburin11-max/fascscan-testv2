@@ -40,107 +40,89 @@
     <canvas id="overlay"></canvas>
 
     <script>
-        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyh2P0KBa9caub2E0QHSt0f0BdmRVJo_zhICFRjuCy-628GkTcV0n8H-IpNsYyQxBUnRQ/exec"; 
+    // ... ส่วนบนคงเดิม ...
 
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('overlay');
-        const status = document.getElementById('status');
-        const nameDisplay = document.getElementById('name-display');
-        let knownFaces = [];
-        let nameTimeout;
+    window.onload = async () => {
+        try {
+            const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+            status.innerText = "⏳ โหลด AI Model...";
+            await Promise.all([
+                faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+                faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+            ]);
 
-        window.onload = async () => {
-            try {
-                const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
-                status.innerText = "⏳ โหลด AI Model...";
-                await Promise.all([
-                    faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
-                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
-                ]);
-
-                status.innerText = "⏳ ดึงข้อมูลพนักงาน...";
-                const response = await fetch(WEB_APP_URL + "?action=getFaces");
-                const data = await response.json();
-                
-                knownFaces = data.map(u => ({ 
-                    label: u.label, 
-                    descriptor: new Float32Array(u.descriptor) 
-                }));
-                
-                status.innerText = "✅ พร้อมใช้งาน (ตรวจสอบใบหน้า...)";
-                initCamera();
-            } catch (e) {
-                status.innerText = "❌ เกิดข้อผิดพลาด: " + e.message;
+            status.innerText = "⏳ ดึงข้อมูลพนักงาน...";
+            const response = await fetch(WEB_APP_URL + "?action=getFaces");
+            const data = await response.json();
+            
+            // ตรวจสอบว่ามีข้อมูลส่งมาจาก Apps Script หรือไม่
+            if (!data || data.length === 0) {
+                status.innerHTML = "⚠️ <span style='color:yellow'>ไม่พบข้อมูลใบหน้าในฐานข้อมูล</span>";
+                return;
             }
-        };
 
-        async function initCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
-                video.srcObject = stream;
-            } catch (err) {
-                status.innerText = "❌ ไม่สามารถเข้าถึงกล้องได้";
-            }
+            knownFaces = data.map(u => ({ 
+                label: u.label, // มาจากคอลัมน์ A ใน Apps Script
+                descriptor: new Float32Array(u.descriptor) // มาจากคอลัมน์ B
+            }));
+            
+            status.innerText = "✅ พร้อมใช้งาน (พบ " + knownFaces.length + " รายชื่อ)";
+            initCamera();
+        } catch (e) {
+            status.innerText = "❌ เกิดข้อผิดพลาด: " + e.message;
         }
+    };
 
-        // เมื่อวิดีโอเริ่มเล่น ให้เริ่มสแกน
-        video.onplay = () => {
-            const displaySize = { width: video.videoWidth, height: video.videoHeight };
-            faceapi.matchDimensions(canvas, displaySize);
+    video.onplay = () => {
+        const displaySize = { width: video.videoWidth, height: video.videoHeight };
+        faceapi.matchDimensions(canvas, displaySize);
 
-            // สร้าง FaceMatcher ครั้งเดียว
-            const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
-                new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
-            ), 0.55); // 0.55 ยิ่งน้อยยิ่งแม่นยำ
+        // สร้าง FaceMatcher จากข้อมูลที่เตรียมไว้
+        const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
+            new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
+        ), 0.55);
 
-            setInterval(async () => {
-                const detections = await faceapi.detectAllFaces(video)
-                    .withFaceLandmarks()
-                    .withFaceDescriptors();
+        setInterval(async () => {
+            const detections = await faceapi.detectAllFaces(video)
+                .withFaceLandmarks()
+                .withFaceDescriptors();
 
-                const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const resizedDetections = faceapi.resizeResults(detections, displaySize);
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                resizedDetections.forEach(detection => {
-                    const result = faceMatcher.findBestMatch(detection.descriptor);
-                    
-                    // แปลงค่า distance เป็นเปอร์เซ็นต์ (ความเหมือน)
-                    const matchPercent = Math.round((1 - result.distance) * 100);
-                    const color = result.label !== 'unknown' ? '#00FF00' : '#FF0000';
-                    
-                    // วาดกรอบสแกน
-                    const drawBox = new faceapi.draw.DrawBox(detection.detection.box, { 
-                        label: `${result.label} (${matchPercent}%)`,
-                        lineWidth: 5,
-                        boxColor: color,
-                        drawLabelOptions: {
-                            fontSize: 25,
-                            fontStyle: 'bold',
-                            fontColor: '#ffffff',
-                            backgroundColor: 'rgba(0,0,0,0.8)' // พื้นหลังป้ายชื่อให้ดำเข้มเพื่อให้อักษรขาวชัด
-                        }
-                    });
-                    drawBox.draw(canvas);
-
-                    // แสดงชื่อด้านบนเมื่อความแม่นยำ > 45% (ปรับได้)
-                    if (result.label !== 'unknown' && matchPercent > 45) {
-                        showNameHeader(result.label, matchPercent);
+            resizedDetections.forEach(detection => {
+                const result = faceMatcher.findBestMatch(detection.descriptor);
+                
+                // คำนวณเปอร์เซ็นต์ความแม่นยำ
+                const matchPercent = Math.round((1 - result.distance) * 100);
+                const color = result.label !== 'unknown' ? '#00FF00' : '#FF0000';
+                
+                // วาดกรอบสแกน
+                const drawBox = new faceapi.draw.DrawBox(detection.detection.box, { 
+                    label: `${result.label} (${matchPercent}%)`, // แสดงชื่อ (A) และ %
+                    lineWidth: 5,
+                    boxColor: color,
+                    drawLabelOptions: {
+                        fontSize: 28, // ปรับให้ตัวเลขใหญ่ขึ้น
+                        fontStyle: 'bold',
+                        fontColor: '#ffffff',
+                        backgroundColor: 'rgba(0,0,0,0.8)' // พื้นหลังเข้มให้อ่านง่าย
                     }
                 });
-            }, 150); // ความเร็วในการสแกน (150ms)
-        };
+                drawBox.draw(canvas);
 
-        function showNameHeader(name, percent) {
-            nameDisplay.innerHTML = `<div>${name}</div><div style="font-size:20px">ความแม่นยำ ${percent}%</div>`;
-            nameDisplay.style.display = "block";
-            
-            clearTimeout(nameTimeout);
-            nameTimeout = setTimeout(() => {
-                nameDisplay.style.display = "none";
-            }, 2500); 
-        }
+                // แสดงชื่อตัวใหญ่เด่นชัดที่กึ่งกลางบนของจอ
+                if (result.label !== 'unknown' && matchPercent > 45) {
+                    showNameHeader(result.label, matchPercent);
+                }
+            });
+        }, 150);
+    };
+
+    // ... ฟังก์ชันอื่นๆ คงเดิม ...
+
     </script>
 </body>
 </html>
