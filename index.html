@@ -91,7 +91,7 @@
 
         const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
             new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
-        ), 0.53);
+        ), 0.51);
 
         setInterval(async () => {
             const detections = await faceapi.detectAllFaces(video)
@@ -132,7 +132,7 @@
                 ctx.fillText(label, 5, -10);
                 ctx.restore();
 
-                if (result.label !== 'unknown' && matchPercent > 60) {
+                if (result.label !== 'unknown' && matchPercent > 65) {
                     showNameHeader(result.label, matchPercent);
                 }
             });
