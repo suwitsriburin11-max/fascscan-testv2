@@ -38,47 +38,58 @@
     <div id="name-display"></div>
     <video id="video" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
+// ... (ส่วน CSS เหมือนเดิม) ...
 
-    <script>
-    // ... ส่วนบนคงเดิม ...
+<script>
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyh2P0KBa9caub2E0QHSt0f0BdmRVJo_zhICFRjuCy-628GkTcV0n8H-IpNsYyQxBUnRQ/exec"; 
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('overlay');
+    const status = document.getElementById('status');
+    const nameDisplay = document.getElementById('name-display');
+    let knownFaces = [];
+    let nameTimeout;
 
     window.onload = async () => {
         try {
+            status.innerText = "⏳ กำลังโหลด AI Model...";
             const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
-            status.innerText = "⏳ โหลด AI Model...";
             await Promise.all([
                 faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
                 faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
                 faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
             ]);
 
-            status.innerText = "⏳ ดึงข้อมูลพนักงาน...";
+            status.innerText = "⏳ ดึงข้อมูลจาก Google Sheets...";
             const response = await fetch(WEB_APP_URL + "?action=getFaces");
             const data = await response.json();
             
-            // ตรวจสอบว่ามีข้อมูลส่งมาจาก Apps Script หรือไม่
             if (!data || data.length === 0) {
-                status.innerHTML = "⚠️ <span style='color:yellow'>ไม่พบข้อมูลใบหน้าในฐานข้อมูล</span>";
+                status.innerHTML = "❌ <span style='color:yellow'>ไม่พบข้อมูลในชีท Users</span>";
                 return;
             }
 
             knownFaces = data.map(u => ({ 
-                label: u.label, // มาจากคอลัมน์ A ใน Apps Script
-                descriptor: new Float32Array(u.descriptor) // มาจากคอลัมน์ B
+                label: u.label, // ชื่อจากคอลัมน์ A
+                descriptor: new Float32Array(u.descriptor) // ข้อมูลจากคอลัมน์ B
             }));
             
             status.innerText = "✅ พร้อมใช้งาน (พบ " + knownFaces.length + " รายชื่อ)";
             initCamera();
         } catch (e) {
-            status.innerText = "❌ เกิดข้อผิดพลาด: " + e.message;
+            status.innerText = "❌ การเชื่อมต่อผิดพลาด: " + e.message;
         }
     };
+
+    async function initCamera() {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+        video.srcObject = stream;
+    }
 
     video.onplay = () => {
         const displaySize = { width: video.videoWidth, height: video.videoHeight };
         faceapi.matchDimensions(canvas, displaySize);
 
-        // สร้าง FaceMatcher จากข้อมูลที่เตรียมไว้
         const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
             new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
         ), 0.55);
@@ -94,35 +105,42 @@
 
             resizedDetections.forEach(detection => {
                 const result = faceMatcher.findBestMatch(detection.descriptor);
-                
-                // คำนวณเปอร์เซ็นต์ความแม่นยำ
                 const matchPercent = Math.round((1 - result.distance) * 100);
                 const color = result.label !== 'unknown' ? '#00FF00' : '#FF0000';
                 
-                // วาดกรอบสแกน
-                const drawBox = new faceapi.draw.DrawBox(detection.detection.box, { 
-                    label: `${result.label} (${matchPercent}%)`, // แสดงชื่อ (A) และ %
+                // --- ส่วนการวาดกรอบและป้ายชื่อ ---
+                const box = detection.detection.box;
+                const drawBox = new faceapi.draw.DrawBox(box, { 
+                    label: `${result.label} (${matchPercent}%)`, // ตัวเลข % หลังชื่อ
                     lineWidth: 5,
                     boxColor: color,
                     drawLabelOptions: {
-                        fontSize: 28, // ปรับให้ตัวเลขใหญ่ขึ้น
+                        fontSize: 30,           // ปรับขนาดตัวอักษรบนกรอบให้ใหญ่
                         fontStyle: 'bold',
                         fontColor: '#ffffff',
-                        backgroundColor: 'rgba(0,0,0,0.8)' // พื้นหลังเข้มให้อ่านง่าย
+                        backgroundColor: 'rgba(0,0,0,0.85)' // พื้นหลังดำสนิทให้อักษรลอยเด่น
                     }
                 });
                 drawBox.draw(canvas);
 
-                // แสดงชื่อตัวใหญ่เด่นชัดที่กึ่งกลางบนของจอ
+                // --- แสดงชื่อเด่นชัดที่มุมบนกึ่งกลางจอ ---
                 if (result.label !== 'unknown' && matchPercent > 45) {
                     showNameHeader(result.label, matchPercent);
                 }
             });
-        }, 150);
+        }, 200);
     };
 
-    // ... ฟังก์ชันอื่นๆ คงเดิม ...
-
-    </script>
+    function showNameHeader(name, percent) {
+        nameDisplay.innerHTML = `<div>ยินดีต้อนรับ: ${name}</div><div style="font-size:22px">ความมั่นใจ: ${percent}%</div>`;
+        nameDisplay.style.display = "block";
+        
+        clearTimeout(nameTimeout);
+        nameTimeout = setTimeout(() => {
+            nameDisplay.style.display = "none";
+        }, 3000);
+    }
+</script>
+    
 </body>
 </html>
