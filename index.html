@@ -10,32 +10,33 @@
         video { transform: scaleX(-1); }
         canvas { transform: scaleX(-1); z-index: 5; }
         
-        /* แถบสถานะเดิม */
         #status { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.6); color: white; padding: 8px 20px; border-radius: 10px; font-size: 14px; pointer-events: none; }
 
-        /* ส่วนแสดงชื่อคนสแกนผ่าน กลางจอ ด้านบน */
+        /* ชื่อคนสแกนผ่าน ปรับให้เด่นและอยู่ตรงกลางบน */
         #name-display { 
             position: absolute; 
-            top: 50px; 
+            top: 40px; 
             left: 50%; 
             transform: translateX(-50%); 
-            z-index: 15; 
-            background: rgba(0, 255, 0, 0.85); 
-            color: black; 
-            padding: 15px 40px; 
-            border-radius: 50px; 
-            font-size: 32px; 
+            z-index: 20; 
+            background: rgba(0, 180, 0, 0.9); 
+            color: white; 
+            padding: 15px 50px; 
+            border-radius: 60px; 
+            font-size: 40px; 
             font-weight: bold; 
-            display: none; /* ซ่อนไว้ก่อนจนกว่าจะเจอ */
-            box-shadow: 0 0 20px rgba(0,255,0,0.5);
-            border: 3px solid white;
-            white-space: nowrap;
+            display: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            border: 4px solid #fff;
+            text-align: center;
+            min-width: 300px;
         }
     </style>
 </head>
 <body>
     <div id="status">⏳ กำลังเชื่อมต่อฐานข้อมูล...</div>
-    <div id="name-display"></div> <video id="video" autoplay muted playsinline></video>
+    <div id="name-display"></div>
+    <video id="video" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
 
     <script>
@@ -67,26 +68,31 @@
                     descriptor: new Float32Array(u.descriptor) 
                 }));
                 
-                status.innerText = "✅ ระบบพร้อมใช้งาน";
+                status.innerText = "✅ พร้อมใช้งาน (ตรวจสอบใบหน้า...)";
                 initCamera();
             } catch (e) {
-                status.innerText = "❌ เชื่อมต่อล้มเหลว: " + e.message;
+                status.innerText = "❌ เกิดข้อผิดพลาด: " + e.message;
             }
         };
 
         async function initCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
-            video.srcObject = stream;
-            video.addEventListener('play', onPlay);
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+                video.srcObject = stream;
+            } catch (err) {
+                status.innerText = "❌ ไม่สามารถเข้าถึงกล้องได้";
+            }
         }
 
-        async function onPlay() {
-            const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
-                new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
-            ), 0.6); // ค่า Threshold 0.6 (ปรับให้น้อยลงถ้าอยากให้แม่นขึ้น)
-
+        // เมื่อวิดีโอเริ่มเล่น ให้เริ่มสแกน
+        video.onplay = () => {
             const displaySize = { width: video.videoWidth, height: video.videoHeight };
             faceapi.matchDimensions(canvas, displaySize);
+
+            // สร้าง FaceMatcher ครั้งเดียว
+            const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
+                new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
+            ), 0.55); // 0.55 ยิ่งน้อยยิ่งแม่นยำ
 
             setInterval(async () => {
                 const detections = await faceapi.detectAllFaces(video)
@@ -100,37 +106,40 @@
                 resizedDetections.forEach(detection => {
                     const result = faceMatcher.findBestMatch(detection.descriptor);
                     
-                    // ปรับแต่งการวาดกรอบ
-                    const box = detection.detection.box;
-                    const drawBox = new faceapi.draw.DrawBox(box, { 
-                        label: result.toString(), // จะแสดงเป็น "Name (distance)"
-                        lineWidth: 4,
-                        boxColor: result.label !== 'unknown' ? '#00FF00' : '#FF0000',
+                    // แปลงค่า distance เป็นเปอร์เซ็นต์ (ความเหมือน)
+                    const matchPercent = Math.round((1 - result.distance) * 100);
+                    const color = result.label !== 'unknown' ? '#00FF00' : '#FF0000';
+                    
+                    // วาดกรอบสแกน
+                    const drawBox = new faceapi.draw.DrawBox(detection.detection.box, { 
+                        label: `${result.label} (${matchPercent}%)`,
+                        lineWidth: 5,
+                        boxColor: color,
                         drawLabelOptions: {
-                            fontSize: 20, // ปรับขนาดตัวเลข/ชื่อบนกรอบให้ใหญ่ขึ้น
+                            fontSize: 25,
                             fontStyle: 'bold',
-                            backgroundColor: 'rgba(0,0,0,0.7)' // พื้นหลังตัวหนังสือให้มองชัด
+                            fontColor: '#ffffff',
+                            backgroundColor: 'rgba(0,0,0,0.8)' // พื้นหลังป้ายชื่อให้ดำเข้มเพื่อให้อักษรขาวชัด
                         }
                     });
                     drawBox.draw(canvas);
 
-                    // ถ้าพบว่าเป็นคนที่รู้จัก และค่าความแม่นยำอยู่ในเกณฑ์
-                    if (result.label !== 'unknown') {
-                        showNameHeader(result.label);
+                    // แสดงชื่อด้านบนเมื่อความแม่นยำ > 45% (ปรับได้)
+                    if (result.label !== 'unknown' && matchPercent > 45) {
+                        showNameHeader(result.label, matchPercent);
                     }
                 });
-            }, 200);
-        }
+            }, 150); // ความเร็วในการสแกน (150ms)
+        };
 
-        function showNameHeader(name) {
-            nameDisplay.innerText = "ยินดีต้อนรับ: " + name;
+        function showNameHeader(name, percent) {
+            nameDisplay.innerHTML = `<div>${name}</div><div style="font-size:20px">ความแม่นยำ ${percent}%</div>`;
             nameDisplay.style.display = "block";
             
-            // ล้าง timeout เก่าเพื่อให้ชื่อค้างไว้ถ้ายังสแกนอยู่
             clearTimeout(nameTimeout);
             nameTimeout = setTimeout(() => {
                 nameDisplay.style.display = "none";
-            }, 3000); // แสดงชื่อค้างไว้ 3 วินาทีหลังจากสแกนไม่เจอแล้ว
+            }, 2500); 
         }
     </script>
 </body>
