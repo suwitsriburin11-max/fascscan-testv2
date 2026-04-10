@@ -7,47 +7,57 @@
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Kanit', sans-serif; }
         video, canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-        
-        /* กลับด้านวิดีโอและแคนวาส */
         video { transform: scaleX(-1); }
         canvas { transform: scaleX(-1); z-index: 5; }
-        
         #status { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.6); color: white; padding: 8px 20px; border-radius: 10px; font-size: 14px; pointer-events: none; }
 
-        /* ย้ายไป ขวาบน (Top Right) */
-        #name-display { 
+        /* ระบบ Container สำหรับแสดงหลายคน */
+        #name-container { 
             position: absolute; 
             top: 20px; 
             right: 20px; 
             z-index: 20; 
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: none;
+        }
+
+        .name-toast { 
             background: rgba(0, 180, 0, 0.9); 
             color: white; 
-            padding: 15px 30px; 
-            border-radius: 20px; 
-            font-size: 28px; 
+            padding: 12px 25px; 
+            border-radius: 15px; 
+            font-size: 24px; 
             font-weight: bold; 
-            display: none;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            border: 3px solid #fff;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            border: 2px solid #fff;
             text-align: right;
+            min-width: 220px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
     </style>
 </head>
 <body>
     <div id="status">⏳ กำลังเชื่อมต่อฐานข้อมูล...</div>
-    <div id="name-display"></div>
+    <div id="name-container"></div>
     <video id="video" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
 
 <script>
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyh2P0KBa9caub2E0QHSt0f0BdmRVJo_zhICFRjuCy-628GkTcV0n8H-IpNsYyQxBUnRQ/exec"; 
-
     const video = document.getElementById('video');
     const canvas = document.getElementById('overlay');
     const status = document.getElementById('status');
-    const nameDisplay = document.getElementById('name-display');
+    const nameContainer = document.getElementById('name-container');
+    
     let knownFaces = [];
-    let nameTimeout;
+    let activeNames = new Set(); // ป้องกันชื่อซ้ำในขณะที่ยังโชว์อยู่
 
     window.onload = async () => {
         try {
@@ -63,11 +73,6 @@
             const response = await fetch(WEB_APP_URL + "?action=getFaces");
             const data = await response.json();
             
-            if (!data || data.length === 0) {
-                status.innerHTML = "❌ <span style='color:yellow'>ไม่พบข้อมูลในชีท Users</span>";
-                return;
-            }
-
             knownFaces = data.map(u => ({ 
                 label: u.label, 
                 descriptor: new Float32Array(u.descriptor) 
@@ -88,16 +93,12 @@
     video.onplay = () => {
         const displaySize = { width: video.videoWidth, height: video.videoHeight };
         faceapi.matchDimensions(canvas, displaySize);
-
         const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
             new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
         ), 0.4);
 
         setInterval(async () => {
-            const detections = await faceapi.detectAllFaces(video)
-                .withFaceLandmarks()
-                .withFaceDescriptors();
-
+            const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
             const resizedDetections = faceapi.resizeResults(detections, displaySize);
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -108,26 +109,18 @@
                 const color = result.label !== 'unknown' ? '#00FF00' : '#FF0000';
                 const box = detection.detection.box;
 
-                // 1. วาดกรอบสแกน (สลับด้านตาม Canvas)
                 ctx.strokeStyle = color;
                 ctx.lineWidth = 5;
                 ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-                // 2. วาดตัวหนังสือแบบ "ไม่สลับด้าน"
                 ctx.save();
-                // ย้ายจุดหมุนไปที่ตำแหน่งที่จะเขียน แล้วทำการ Flip ตัวอักษรคืน
                 ctx.translate(box.x + box.width, box.y);
                 ctx.scale(-1, 1); 
-
                 const label = `${result.label} (${matchPercent}%)`;
                 ctx.font = 'bold 24px Kanit';
-                
-                // วาดพื้นหลังตัวอักษร
                 const textWidth = ctx.measureText(label).width;
                 ctx.fillStyle = 'rgba(0,0,0,0.8)';
                 ctx.fillRect(0, -35, textWidth + 10, 35);
-
-                // เขียนข้อความ
                 ctx.fillStyle = '#ffffff';
                 ctx.fillText(label, 5, -10);
                 ctx.restore();
@@ -140,12 +133,27 @@
     };
 
     function showNameHeader(name, percent) {
-        nameDisplay.innerHTML = `<div>ยินดีต้อนรับ</div><div>${name}</div><div style="font-size:18px; font-weight:normal;">ความมั่นใจ: ${percent}%</div>`;
-        nameDisplay.style.display = "block";
-        
-        clearTimeout(nameTimeout);
-        nameTimeout = setTimeout(() => {
-            nameDisplay.style.display = "none";
+        if (activeNames.has(name)) return;
+        activeNames.add(name);
+
+        const toast = document.createElement('div');
+        toast.className = 'name-toast';
+        toast.innerHTML = `
+            <div style="font-size: 14px; font-weight: normal;">ยินดีต้อนรับ</div>
+            <div>${name}</div>
+            <div style="font-size: 16px; font-weight: normal;">ความมั่นใจ: ${percent}%</div>
+        `;
+
+        nameContainer.appendChild(toast);
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(100%)';
+            toast.style.transition = '0.5s';
+            setTimeout(() => {
+                toast.remove();
+                activeNames.delete(name);
+            }, 500);
         }, 3000);
     }
 </script>
