@@ -91,46 +91,63 @@
     }
 
     video.onplay = () => {
-        const displaySize = { width: video.videoWidth, height: video.videoHeight };
-        faceapi.matchDimensions(canvas, displaySize);
-        const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
-            new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
-        ), 0.4);
+    const displaySize = { width: video.videoWidth, height: video.videoHeight };
+    faceapi.matchDimensions(canvas, displaySize);
+    const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
+        new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
+    ), 0.4);
 
-        setInterval(async () => {
-            const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
-            const resizedDetections = faceapi.resizeResults(detections, displaySize);
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setInterval(async () => {
+        const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
+        const resizedDetections = faceapi.resizeResults(detections, displaySize);
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            resizedDetections.forEach(detection => {
-                const result = faceMatcher.findBestMatch(detection.descriptor);
-                const matchPercent = Math.round((1 - result.distance) * 100);
-                const color = result.label !== 'unknown' ? '#00FF00' : '#FF0000';
-                const box = detection.detection.box;
+        resizedDetections.forEach(detection => {
+            const result = faceMatcher.findBestMatch(detection.descriptor);
+            const matchPercent = Math.round((1 - result.distance) * 100);
+            const color = result.label !== 'unknown' ? '#00FF00' : '#FF0000';
+            const box = detection.detection.box;
 
-                ctx.strokeStyle = color;
-                ctx.lineWidth = 5;
-                ctx.strokeRect(box.x, box.y, box.width, box.height);
+            // วาดกรอบสี่เหลี่ยมที่ใบหน้า
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 5;
+            ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-                ctx.save();
-                ctx.translate(box.x + box.width, box.y);
-                ctx.scale(-1, 1); 
-                const label = `${result.label} (${matchPercent}%)`;
-                ctx.font = 'bold 24px Kanit';
-                const textWidth = ctx.measureText(label).width;
-                ctx.fillStyle = 'rgba(0,0,0,0.8)';
-                ctx.fillRect(0, -35, textWidth + 10, 35);
-                ctx.fillStyle = '#ffffff';
-                ctx.fillText(label, 5, -10);
-                ctx.restore();
+            // วาดชื่อเล็กๆ บนกรอบหน้า
+            ctx.save();
+            ctx.translate(box.x + box.width, box.y);
+            ctx.scale(-1, 1); 
+            const label = `${result.label} (${matchPercent}%)`;
+            ctx.font = 'bold 24px Kanit';
+            const textWidth = ctx.measureText(label).width;
+            ctx.fillStyle = 'rgba(0,0,0,0.8)';
+            ctx.fillRect(0, -35, textWidth + 10, 35);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(label, 5, -10);
+            ctx.restore();
 
-                if (result.label !== 'unknown' && matchPercent > 60) {
+            // --- ส่วนที่แก้ไข: แสดงที่มุมขวาจอ + ส่งแจ้งเตือน LINE OA ---
+            if (result.label !== 'unknown' && matchPercent > 60) {
+                // ตรวจสอบว่าชื่อนี้กำลังแสดงอยู่บนหน้าจอหรือไม่ (เพื่อไม่ให้ส่ง LINE ซ้ำรัวๆ)
+                if (!activeNames.has(result.label)) { 
+                    
+                    // 1. เรียกใช้ฟังก์ชันเดิมเพื่อแสดงชื่อมุมขวาบน (Toast)
                     showNameHeader(result.label, matchPercent);
+
+                    // 2. ส่งข้อมูลไปที่ Google Apps Script เพื่อลงชื่อใน Sheet และส่ง LINE OA
+                    fetch(WEB_APP_URL, {
+                        method: 'POST',
+                        mode: 'no-cors', 
+                        cache: 'no-cache',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: result.label })
+                    });
                 }
-            });
-        }, 200);
-    };
+            }
+        });
+    }, 200);
+};
 
     function showNameHeader(name, percent) {
         if (activeNames.has(name)) return;
