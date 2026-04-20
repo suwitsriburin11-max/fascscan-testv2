@@ -57,6 +57,7 @@
     const nameContainer = document.getElementById('name-container');
     
     let knownFaces = [];
+    let lineCooldown = new Set();
     let activeNames = new Set(); // ป้องกันชื่อซ้ำในขณะที่ยังโชว์อยู่
 
     window.onload = async () => {
@@ -129,22 +130,33 @@
 
             // --- ส่วนที่แก้ไข: แสดงที่มุมขวาจอ + ส่งแจ้งเตือน LINE OA ---
        // ใน resizedDetections.forEach
-if (result.label !== 'unknown' && matchPercent > 60) {
-    if (!activeNames.has(result.label)) { 
-        
-        activeNames.add(result.label); // ล็อคชื่อ "เฉพาะคนนี้"
+// 1. เพิ่มตัวแปร Cooldown สำหรับ Line ไว้ด้านบน (แถวๆ ที่ประกาศ activeNames)
+let lineCooldown = new Set(); 
 
-        showNameHeader(result.label, matchPercent);
+// 2. ปรับปรุงส่วนการเช็คใน setInterval
+if (result.label !== 'unknown' && matchPercent > 60) {
+    
+    // --- ส่วนที่ 1: แสดงชื่อที่มุมขวาบน (โชว์ทุกครั้งที่สแกนเจอใหม่หลังจากหายไป) ---
+    if (!activeNames.has(result.label)) {
+        showNameHeader(result.label, matchPercent); 
+        // (ในฟังก์ชัน showNameHeader ของคุณมีการ delete ชื่อหลังจาก 3 วินาทีอยู่แล้ว)
+    }
+
+    // --- ส่วนที่ 2: ส่งแจ้งเตือนเข้า LINE (ส่งแค่ 1 ครั้งต่อนาที) ---
+    if (!lineCooldown.has(result.label)) {
+        lineCooldown.add(result.label); // ล็อคการส่ง Line
 
         fetch(WEB_APP_URL, {
             method: 'POST',
             mode: 'no-cors',
+            cache: 'no-cache',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: result.label })
         });
 
-        // ล็อคไว้ 1 นาทีเฉพาะชื่อนี้ คนอื่นที่ไม่อยู่ใน Set จะยังส่งได้ปกติ
+        // ปลดล็อคการส่ง Line หลังจาก 1 นาที
         setTimeout(() => {
-            activeNames.delete(result.label);
+            lineCooldown.delete(result.label);
         }, 60000); 
     }
 }
