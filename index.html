@@ -164,30 +164,29 @@ if (result.label !== 'unknown' && matchPercent > 60) {
     }, 200);
 };
 
-    function showNameHeader(name, percent) {
-        if (activeNames.has(name)) return;
-        activeNames.add(name);
+function showNameHeader(name, percent) {
+    if (activeNames.has(name)) return;
+    activeNames.add(name);
 
-        const toast = document.createElement('div');
-        toast.className = 'name-toast';
-        toast.innerHTML = `
-            <div style="font-size: 14px; font-weight: normal;">ยินดีต้อนรับ</div>
-            <div>${name}</div>
-            <div style="font-size: 16px; font-weight: normal;">ความมั่นใจ: ${percent}%</div>
-        `;
+    const toast = document.createElement('div');
+    toast.className = 'name-toast';
+    toast.innerHTML = `
+        <div style="font-size: 14px; font-weight: normal;">ยินดีต้อนรับ</div>
+        <div>${name}</div>
+        <div style="font-size: 16px; font-weight: normal;">ความมั่นใจ: ${percent}%</div>
+    `;
+    nameContainer.appendChild(toast);
 
-        nameContainer.appendChild(toast);
-
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(100%)';
+        toast.style.transition = '0.5s';
         setTimeout(() => {
-            toast.style.opacity = '0';
-            toast.style.transform = 'translateX(100%)';
-            toast.style.transition = '0.5s';
-            setTimeout(() => {
-                toast.remove();
-                activeNames.delete(name);
-            }, 500);
-        }, 3000);
-    }
+            toast.remove();
+            activeNames.delete(name); // ลบออกจาก Set เพื่อให้สแกนแล้วขึ้นจอใหม่ได้
+        }, 500);
+    }, 3000); // ข้อความค้างบนจอ 3 วินาที
+}
 </script>
 </body>
 </html>
