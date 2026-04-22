@@ -96,7 +96,7 @@
     faceapi.matchDimensions(canvas, displaySize);
     const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
         new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
-    ), 0.55);
+    ), 0.4);
 
     setInterval(async () => {
         const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
@@ -134,7 +134,7 @@
  
 
 // 2. ปรับปรุงส่วนการเช็คใน setInterval
-if (result.label !== 'unknown' && matchPercent > 55) {
+if (result.label !== 'unknown' && matchPercent > 60) {
     
     // --- ส่วนที่ 1: แสดงชื่อที่มุมขวาบน (โชว์ทุกครั้งที่สแกนเจอใหม่หลังจากหายไป) ---
     if (!activeNames.has(result.label)) {
