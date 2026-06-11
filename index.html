@@ -73,9 +73,11 @@
             const response = await fetch(WEB_APP_URL + "?action=getFaces");
             const data = await response.json();
             
+            // แก้ไขจุดนี้: ทำการดึงและแมปค่า u.imageLink มาร่วมจัดเก็บในออบเจกต์ด้วย
             knownFaces = data.map(u => ({ 
                 label: u.label, 
-                descriptor: new Float32Array(u.descriptor) 
+                descriptor: new Float32Array(u.descriptor),
+                imageLink: u.imageLink || ""
             }));
             
             status.innerText = "✅ พร้อมใช้งาน (พบ " + knownFaces.length + " รายชื่อ)";
@@ -87,7 +89,6 @@
 
     async function initCamera() {
         try {
-            // ปรับความละเอียดกล้องเป็น Full HD (1920x1080) เพื่อความคมชัดสูงสุดในการวิเคราะห์ใบหน้า
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { 
                     width: { ideal: 1920 },
@@ -97,7 +98,6 @@
             });
             video.srcObject = stream;
         } catch (err) {
-            // กรณีกล้องไม่รองรับ Full HD ให้ถอยลงมาเป็น HD ปกติ
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             video.srcObject = stream;
         }
@@ -107,13 +107,11 @@
         const displaySize = { width: video.videoWidth, height: video.videoHeight };
         faceapi.matchDimensions(canvas, displaySize);
         
-        // [จุดเปลี่ยนสำคัญ 1] ปรับค่า Threshold เป็น 0.35 (เข้มงวดขึ้น ลดการจำผิดคน)
         const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
             new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
         ), 0.35);
 
         setInterval(async () => {
-            // ใช้ SsdMobilenetv1 ร่วมกับค่า minConfidence ที่คัดกรองเฉพาะใบหน้าเน้นๆ
             const detections = await faceapi.detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.6 }))
                                              .withFaceLandmarks()
                                              .withFaceDescriptors();
@@ -125,18 +123,16 @@
             resizedDetections.forEach(detection => {
                 const result = faceMatcher.findBestMatch(detection.descriptor);
                 
-                // คำนวณเปอร์เซ็นต์ความแม่นยำใหม่ ให้สัมพันธ์กับระบบคัดกรองที่เข้มงวดขึ้น
                 const matchPercent = Math.round((1 - result.distance) * 100);
                 const isKnown = result.label !== 'unknown';
                 const color = isKnown ? '#00FF00' : '#FF0000';
                 const box = detection.detection.box;
 
-                // วาดกรอบสี่เหลี่ยมใบหน้า
+                // วางกรอบและชื่อบนจอผู้ใช้งานเหมือนเดิม
                 ctx.strokeStyle = color;
                 ctx.lineWidth = 5;
                 ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-                // แสดงข้อความบนจอภาพ
                 ctx.save();
                 ctx.translate(box.x + box.width, box.y);
                 ctx.scale(-1, 1); 
@@ -149,24 +145,29 @@
                 ctx.fillText(label, 5, -10);
                 ctx.restore();
 
-                // [จุดเปลี่ยนสำคัญ 2] กรองเฉพาะผลลัพธ์ที่มั่นใจจริง ๆ เท่านั้น
                 if (isKnown && result.distance <= 0.35) {
                     
-                    // ส่วนที่ 1: แสดงแถบต้อนรับมุมขวาบน
                     if (!activeNames.has(result.label)) {
                         showNameHeader(result.label, matchPercent); 
                     }
 
-                    // ส่วนที่ 2: ส่งแจ้งเตือน Line (Cooldown 1 นาทีต่อคน)
                     if (!lineCooldown.has(result.label)) {
                         lineCooldown.add(result.label);
 
+                        // ค้นหาลิงก์รูปภาพของคนที่สแกนเจอจากตัวแปรหน่วยความจำ knownFaces
+                        const matchedUserData = knownFaces.find(f => f.label === result.label);
+                        const userImage = matchedUserData ? matchedUserData.imageLink : "";
+
+                        // ปรับปรุงการส่งข้อมูล: พ่วงส่งค่า imageLink ไปใน JSON Object เพื่อให้สคริปต์ doPost รับช่วงต่อ
                         fetch(WEB_APP_URL, {
                             method: 'POST',
                             mode: 'no-cors',
                             cache: 'no-cache',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ name: result.label })
+                            body: JSON.stringify({ 
+                                name: result.label,
+                                imageLink: userImage
+                            })
                         });
 
                         setTimeout(() => {
@@ -175,7 +176,7 @@
                     }
                 }
             });
-        }, 250); // ปรับวินาทีตรวจจับเป็น 250ms เพื่อลดภาระ CPU ในขณะภาพชัดขึ้น
+        }, 250);
     };
 
     function showNameHeader(name, percent) {
