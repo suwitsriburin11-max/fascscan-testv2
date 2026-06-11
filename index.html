@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Face Scan Full Screen</title>
+    <title>Face Scan Full Screen (High Precision)</title>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.js"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Kanit', sans-serif; }
@@ -11,7 +11,6 @@
         canvas { transform: scaleX(-1); z-index: 5; }
         #status { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.6); color: white; padding: 8px 20px; border-radius: 10px; font-size: 14px; pointer-events: none; }
 
-        /* ระบบ Container สำหรับแสดงหลายคน */
         #name-container { 
             position: absolute; 
             top: 20px; 
@@ -58,7 +57,7 @@
     
     let knownFaces = [];
     let lineCooldown = new Set();
-    let activeNames = new Set(); // ป้องกันชื่อซ้ำในขณะที่ยังโชว์อยู่
+    let activeNames = new Set();
 
     window.onload = async () => {
         try {
@@ -87,106 +86,121 @@
     };
 
     async function initCamera() {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
-        video.srcObject = stream;
+        try {
+            // ปรับความละเอียดกล้องเป็น Full HD (1920x1080) เพื่อความคมชัดสูงสุดในการวิเคราะห์ใบหน้า
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                    facingMode: "user"
+                } 
+            });
+            video.srcObject = stream;
+        } catch (err) {
+            // กรณีกล้องไม่รองรับ Full HD ให้ถอยลงมาเป็น HD ปกติ
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+        }
     }
 
     video.onplay = () => {
-    const displaySize = { width: video.videoWidth, height: video.videoHeight };
-    faceapi.matchDimensions(canvas, displaySize);
-    const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
-        new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
-    ), 0.4);
+        const displaySize = { width: video.videoWidth, height: video.videoHeight };
+        faceapi.matchDimensions(canvas, displaySize);
+        
+        // [จุดเปลี่ยนสำคัญ 1] ปรับค่า Threshold เป็น 0.35 (เข้มงวดขึ้น ลดการจำผิดคน)
+        const faceMatcher = new faceapi.FaceMatcher(knownFaces.map(f => 
+            new faceapi.LabeledFaceDescriptors(f.label, [f.descriptor])
+        ), 0.35);
 
-    setInterval(async () => {
-        const detections = await faceapi.detectAllFaces(video).withFaceLandmarks().withFaceDescriptors();
-        const resizedDetections = faceapi.resizeResults(detections, displaySize);
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        setInterval(async () => {
+            // ใช้ SsdMobilenetv1 ร่วมกับค่า minConfidence ที่คัดกรองเฉพาะใบหน้าเน้นๆ
+            const detections = await faceapi.detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.6 }))
+                                             .withFaceLandmarks()
+                                             .withFaceDescriptors();
+            
+            const resizedDetections = faceapi.resizeResults(detections, displaySize);
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        resizedDetections.forEach(detection => {
-            const result = faceMatcher.findBestMatch(detection.descriptor);
-            const matchPercent = Math.round((1 - result.distance) * 100);
-            const color = result.label !== 'unknown' ? '#00FF00' : '#FF0000';
-            const box = detection.detection.box;
+            resizedDetections.forEach(detection => {
+                const result = faceMatcher.findBestMatch(detection.descriptor);
+                
+                // คำนวณเปอร์เซ็นต์ความแม่นยำใหม่ ให้สัมพันธ์กับระบบคัดกรองที่เข้มงวดขึ้น
+                const matchPercent = Math.round((1 - result.distance) * 100);
+                const isKnown = result.label !== 'unknown';
+                const color = isKnown ? '#00FF00' : '#FF0000';
+                const box = detection.detection.box;
 
-            // วาดกรอบสี่เหลี่ยมที่ใบหน้า
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 5;
-            ctx.strokeRect(box.x, box.y, box.width, box.height);
+                // วาดกรอบสี่เหลี่ยมใบหน้า
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 5;
+                ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-            // วาดชื่อเล็กๆ บนกรอบหน้า
-            ctx.save();
-            ctx.translate(box.x + box.width, box.y);
-            ctx.scale(-1, 1); 
-            const label = `${result.label} (${matchPercent}%)`;
-            ctx.font = 'bold 24px Kanit';
-            const textWidth = ctx.measureText(label).width;
-            ctx.fillStyle = 'rgba(0,0,0,0.8)';
-            ctx.fillRect(0, -35, textWidth + 10, 35);
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(label, 5, -10);
-            ctx.restore();
+                // แสดงข้อความบนจอภาพ
+                ctx.save();
+                ctx.translate(box.x + box.width, box.y);
+                ctx.scale(-1, 1); 
+                const label = isKnown ? `${result.label} (${matchPercent}%)` : "Unknown";
+                ctx.font = 'bold 24px Kanit';
+                const textWidth = ctx.measureText(label).width;
+                ctx.fillStyle = 'rgba(0,0,0,0.8)';
+                ctx.fillRect(0, -35, textWidth + 10, 35);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(label, 5, -10);
+                ctx.restore();
 
-            // --- ส่วนที่แก้ไข: แสดงที่มุมขวาจอ + ส่งแจ้งเตือน LINE OA ---
-       // ใน resizedDetections.forEach
-// 1. เพิ่มตัวแปร Cooldown สำหรับ Line ไว้ด้านบน (แถวๆ ที่ประกาศ activeNames)
- 
+                // [จุดเปลี่ยนสำคัญ 2] กรองเฉพาะผลลัพธ์ที่มั่นใจจริง ๆ เท่านั้น
+                if (isKnown && result.distance <= 0.35) {
+                    
+                    // ส่วนที่ 1: แสดงแถบต้อนรับมุมขวาบน
+                    if (!activeNames.has(result.label)) {
+                        showNameHeader(result.label, matchPercent); 
+                    }
 
-// 2. ปรับปรุงส่วนการเช็คใน setInterval
-if (result.label !== 'unknown' && matchPercent > 60) {
-    
-    // --- ส่วนที่ 1: แสดงชื่อที่มุมขวาบน (โชว์ทุกครั้งที่สแกนเจอใหม่หลังจากหายไป) ---
-    if (!activeNames.has(result.label)) {
-        showNameHeader(result.label, matchPercent); 
-        // (ในฟังก์ชัน showNameHeader ของคุณมีการ delete ชื่อหลังจาก 3 วินาทีอยู่แล้ว)
-    }
+                    // ส่วนที่ 2: ส่งแจ้งเตือน Line (Cooldown 1 นาทีต่อคน)
+                    if (!lineCooldown.has(result.label)) {
+                        lineCooldown.add(result.label);
 
-    // --- ส่วนที่ 2: ส่งแจ้งเตือนเข้า LINE (ส่งแค่ 1 ครั้งต่อนาที) ---
-    if (!lineCooldown.has(result.label)) {
-        lineCooldown.add(result.label); // ล็อคการส่ง Line
+                        fetch(WEB_APP_URL, {
+                            method: 'POST',
+                            mode: 'no-cors',
+                            cache: 'no-cache',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: result.label })
+                        });
 
-        fetch(WEB_APP_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            cache: 'no-cache',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: result.label })
-        });
+                        setTimeout(() => {
+                            lineCooldown.delete(result.label);
+                        }, 60000); 
+                    }
+                }
+            });
+        }, 250); // ปรับวินาทีตรวจจับเป็น 250ms เพื่อลดภาระ CPU ในขณะภาพชัดขึ้น
+    };
 
-        // ปลดล็อคการส่ง Line หลังจาก 1 นาที
+    function showNameHeader(name, percent) {
+        if (activeNames.has(name)) return;
+        activeNames.add(name);
+
+        const toast = document.createElement('div');
+        toast.className = 'name-toast';
+        toast.innerHTML = `
+            <div style="font-size: 14px; font-weight: normal;">ยินดีต้อนรับ</div>
+            <div>${name}</div>
+            <div style="font-size: 16px; font-weight: normal;">ความมั่นใจ: ${percent}%</div>
+        `;
+        nameContainer.appendChild(toast);
+
         setTimeout(() => {
-            lineCooldown.delete(result.label);
-        }, 60000); 
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(100%)';
+            toast.style.transition = '0.5s';
+            setTimeout(() => {
+                toast.remove();
+                activeNames.delete(name);
+            }, 500);
+        }, 5000);
     }
-}
-        });
-    }, 200);
-};
-
-function showNameHeader(name, percent) {
-    if (activeNames.has(name)) return;
-    activeNames.add(name);
-
-    const toast = document.createElement('div');
-    toast.className = 'name-toast';
-    toast.innerHTML = `
-        <div style="font-size: 14px; font-weight: normal;">ยินดีต้อนรับ</div>
-        <div>${name}</div>
-        <div style="font-size: 16px; font-weight: normal;">ความมั่นใจ: ${percent}%</div>
-    `;
-    nameContainer.appendChild(toast);
-
-    setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateX(100%)';
-        toast.style.transition = '0.5s';
-        setTimeout(() => {
-            toast.remove();
-            activeNames.delete(name); // ลบออกจาก Set เพื่อให้สแกนแล้วขึ้นจอใหม่ได้
-        }, 500);
-    }, 5000); // ข้อความค้างบนจอ 5 วินาที
-}
 </script>
 </body>
 </html>
